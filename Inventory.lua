@@ -521,6 +521,9 @@ end
 -- BUY LUCKY ARROWS
 -- =====================
 function Inventory:BuyLucky()
+    print("[Inventory] BuyLuckyArrow Started")
+    print("[Inventory] Current Lucky Arrows: " .. self:Count("Lucky Arrow"))
+    print("[Inventory] Current Lucky Arrows: " .. self:GetMoney())
     if not _config:Get("FarmEnabled") then return end
     if not _config:Get("BuyLucky")     then return end
     if self:Count("Lucky Arrow") >= LUCKY_STOP then return end
@@ -537,7 +540,7 @@ function Inventory:BuyLucky()
             if not char then return end
             local re = char:FindFirstChild("RemoteEvent")
             if not re then return end
-            re:FireServer("PurchaseShopItem", { ItemName = "1x Lucky Arrow" })
+            re:FireServer("PurchaseShopItem", {ItemName = "1x Lucky Arrow"})
         end)
         task.wait(1)
         attempts = attempts + 1
