@@ -15,7 +15,7 @@ LOG("BOOT", "Starting up...")
 task.wait(6)
 LOG("BOOT", "Initial wait done.")
 
-local BASE_URL = "https://raw.githubusercontent.com/WHITEDRAGONx/WHITE-HUB-V2/main/"
+local BASE_URL = "https://github.com/bartsimss/WHITE-HUB-V2/main/"
 
 local function Load(file)
     local url = BASE_URL .. file
