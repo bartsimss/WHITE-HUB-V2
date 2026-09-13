@@ -207,6 +207,8 @@ local function DoHop()
 
     if shouldSkipHop() then
         print("[Farm] DoHop aborted – skipping hop.")
+        _inventory:SellAll()
+        _inventory:BuyLucky()
         return
     end
 
