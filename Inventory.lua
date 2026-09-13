@@ -203,7 +203,25 @@ local function clickButton(btn)
     return firedMethod
 end
 
--- Searches DialogueGui.Options for an option whose TextButton contains
+local function dumpGuiHierarchy(root, maxDepth, currentDepth)
+    maxDepth = maxDepth or 3
+    currentDepth = currentDepth or 0
+    if currentDepth > maxDepth then return end
+
+    for _, child in ipairs(root:GetChildren()) do
+        local info = child.ClassName .. " '" .. child.Name .. "'"
+        if child:IsA("TextLabel") or child:IsA("TextButton") then
+            info = info .. " [Text: '" .. tostring(child.Text) .. "']"
+        end
+        if child:IsA("GuiObject") then
+            info = info .. " [Visible: " .. tostring(child.Visible) .. "]"
+        end
+        print(string.rep("  ", currentDepth + 1) .. info)
+        dumpGuiHierarchy(child, maxDepth, currentDepth + 1)
+    end
+end
+
+-- Searches DialogueGui for an option whose TextButton contains
 -- the given text. Returns the TextButton (or nil on timeout).
 local function findOptionByText(text, timeout)
     timeout = timeout or 5
@@ -213,17 +231,26 @@ local function findOptionByText(text, timeout)
     while tick() - start < timeout do
         local dlg = Player.PlayerGui and Player.PlayerGui:FindFirstChild("DialogueGui")
         if dlg then
-            local opts = dlg:FindFirstChild("Options")
-            if opts then
+            -- Search recursively for 'Options' anywhere inside DialogueGui (e.g. DialogueGui.Frame.Options)
+            local opts = dlg:FindFirstChild("Options", true)
+            if opts and #opts:GetChildren() > 0 then
                 for _, opt in ipairs(opts:GetChildren()) do
-                    local btn = opt:FindFirstChild("TextButton", true)
+                    local btn = opt:IsA("GuiButton") and opt or opt:FindFirstChildWhichIsA("GuiButton", true)
                     if btn then
                         local btnText = btn.Text or ""
-                        if btnText:find(text, 1, true) then
-                            print(("[Inventory][DEBUG] findOptionByText: MATCH FOUND for '%s' -> Button text: '%s'"):format(text, btnText))
+                        if btnText:lower():find(text:lower(), 1, true) then
+                            print(("[Inventory][DEBUG] findOptionByText: MATCH FOUND for '%s' -> Button text: '%s' (Path: %s)"):format(text, btnText, btn:GetFullName()))
                             return btn
                         end
                     end
+                end
+            else
+                -- Options not populated yet. If ClickContinue is visible, dialogue needs advancing
+                local clickContinue = dlg:FindFirstChild("ClickContinue", true)
+                if clickContinue and clickContinue:IsA("GuiButton") and clickContinue.Visible then
+                    print("[Inventory][DEBUG] ClickContinue visible — clicking to advance dialogue...")
+                    clickButton(clickContinue)
+                    task.wait(0.25)
                 end
             end
         end
@@ -241,21 +268,8 @@ local function findOptionByText(text, timeout)
         end
         warn(("[Inventory][DEBUG] ❌ findOptionByText timeout for '%s'. DialogueGui NOT found in PlayerGui. Available Guis: %s"):format(text, table.concat(guis, ", ")))
     else
-        local opts = dlg:FindFirstChild("Options")
-        if not opts then
-            warn(("[Inventory][DEBUG] ❌ findOptionByText timeout for '%s'. DialogueGui exists (Enabled=%s) but 'Options' folder/frame is missing."):format(text, tostring(dlg.Enabled)))
-        else
-            local foundTexts = {}
-            for _, opt in ipairs(opts:GetChildren()) do
-                local btn = opt:FindFirstChild("TextButton", true)
-                if btn then
-                    table.insert(foundTexts, ("'%s'"):format(btn.Text or ""))
-                else
-                    table.insert(foundTexts, ("[%s - no TextButton]"):format(opt.Name))
-                end
-            end
-            warn(("[Inventory][DEBUG] ❌ findOptionByText timeout for '%s'. Available option buttons: [%s]"):format(text, table.concat(foundTexts, ", ")))
-        end
+        warn(("[Inventory][DEBUG] ❌ findOptionByText timeout for '%s'. Full DialogueGui dump below:"):format(text))
+        dumpGuiHierarchy(dlg)
     end
 
     return nil
@@ -461,18 +475,18 @@ function Inventory:SellAll()
                         print("[Inventory][DEBUG] Step 3 fallback 2: Clicking last option in DialogueGui.Options...")
                         local dlg = Player.PlayerGui:FindFirstChild("DialogueGui")
                         if dlg then
-                            local opts = dlg:FindFirstChild("Options")
+                            local opts = dlg:FindFirstChild("Options", true)
                             if opts then
                                 local children = opts:GetChildren()
                                 local last = children[#children]
                                 if last then
-                                    local btn = last:FindFirstChild("TextButton", true)
+                                    local btn = last:IsA("GuiButton") and last or last:FindFirstChildWhichIsA("GuiButton", true)
                                     if btn then
                                         print("[Inventory][DEBUG] Clicking last option button: " .. tostring(btn.Text))
                                         clickButton(btn)
                                         step3 = true
                                     else
-                                        print("[Inventory][DEBUG] Last option has no TextButton.")
+                                        print("[Inventory][DEBUG] Last option has no GuiButton.")
                                     end
                                 else
                                     print("[Inventory][DEBUG] Options has 0 children.")
