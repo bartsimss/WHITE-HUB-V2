@@ -221,71 +221,94 @@ local function dumpGuiHierarchy(root, maxDepth, currentDepth)
     end
 end
 
--- Searches DialogueGui for an option whose TextButton contains
--- the given text. Returns the TextButton (or nil on timeout).
-local function findOptionByText(text, timeout)
-    timeout = timeout or 5
+local function advanceDialogue(dlg)
+    if not dlg then
+        dlg = Player.PlayerGui and Player.PlayerGui:FindFirstChild("DialogueGui")
+    end
+    if not dlg then return end
+
+    -- 1. Click ClickContinue button if visible
+    local clickContinue = dlg:FindFirstChild("ClickContinue", true)
+    if clickContinue and clickContinue:IsA("GuiButton") and clickContinue.Visible then
+        print("[Inventory][DEBUG] Pressing ClickContinue to skip dialogue...")
+        clickButton(clickContinue)
+        return
+    end
+
+    -- 2. Physical mouse click on screen (advances typewriter / prompts in YBA)
+    pcall(function()
+        VirtualInputManager:SendMouseButtonEvent(0, 8, 0, true, nil, 1)
+        task.wait(0.04)
+        VirtualInputManager:SendMouseButtonEvent(0, 8, 0, false, nil, 1)
+    end)
+end
+
+-- Waits for a specific option name (e.g. "Option1", "Option6") to appear in DialogueGui.Frame.Options,
+-- pulsing dialogue advance clicks while waiting.
+local function waitAndClickOption(targetOptionName, timeout, fallbackText)
+    timeout = timeout or 4
     local start = tick()
-    print(("[Inventory][DEBUG] findOptionByText: Searching for '%s' (timeout: %ds)..."):format(text, timeout))
+    print(("[Inventory][DEBUG] waitAndClickOption: Looking for %s (fallbackText: %s, timeout: %ds)..."):format(targetOptionName, tostring(fallbackText), timeout))
 
     while tick() - start < timeout do
         local dlg = Player.PlayerGui and Player.PlayerGui:FindFirstChild("DialogueGui")
         if dlg then
-            -- Search recursively for 'Options' anywhere inside DialogueGui (e.g. DialogueGui.Frame.Options)
             local opts = dlg:FindFirstChild("Options", true)
             if opts and #opts:GetChildren() > 0 then
-                for _, opt in ipairs(opts:GetChildren()) do
+                -- 1. Direct name match (e.g. "Option1", "Option6")
+                local opt = opts:FindFirstChild(targetOptionName)
+                if opt then
                     local btn = opt:IsA("GuiButton") and opt or opt:FindFirstChildWhichIsA("GuiButton", true)
-                    if btn then
-                        local btnText = btn.Text or ""
-                        if btnText:lower():find(text:lower(), 1, true) then
-                            print(("[Inventory][DEBUG] findOptionByText: MATCH FOUND for '%s' -> Button text: '%s' (Path: %s)"):format(text, btnText, btn:GetFullName()))
-                            return btn
+                    if btn and btn.Visible ~= false then
+                        local text = btn:IsA("TextButton") and btn.Text or ""
+                        print(("[Inventory][DEBUG] Found target %s (Text: '%s') -> Clicking!"):format(targetOptionName, text))
+                        clickButton(btn)
+                        return true
+                    end
+                end
+
+                -- 2. Fallback text search if provided
+                if fallbackText then
+                    for _, child in ipairs(opts:GetChildren()) do
+                        local btn = child:IsA("GuiButton") and child or child:FindFirstChildWhichIsA("GuiButton", true)
+                        if btn and btn.Visible ~= false then
+                            local btnText = btn:IsA("TextButton") and btn.Text or ""
+                            if btnText:lower():find(fallbackText:lower(), 1, true) then
+                                print(("[Inventory][DEBUG] Found fallback text match '%s' on %s (Text: '%s') -> Clicking!"):format(fallbackText, child.Name, btnText))
+                                clickButton(btn)
+                                return true
+                            end
                         end
                     end
                 end
-            else
-                -- Options not populated yet. If ClickContinue is visible, dialogue needs advancing
-                local clickContinue = dlg:FindFirstChild("ClickContinue", true)
-                if clickContinue and clickContinue:IsA("GuiButton") and clickContinue.Visible then
-                    print("[Inventory][DEBUG] ClickContinue visible — clicking to advance dialogue...")
-                    clickButton(clickContinue)
-                    task.wait(0.25)
+
+                -- 3. If target was Option6, fallback to clicking the last option child
+                if targetOptionName == "Option6" then
+                    local children = opts:GetChildren()
+                    local last = children[#children]
+                    if last then
+                        local btn = last:IsA("GuiButton") and last or last:FindFirstChildWhichIsA("GuiButton", true)
+                        if btn and btn.Visible ~= false then
+                            local text = btn:IsA("TextButton") and btn.Text or ""
+                            print(("[Inventory][DEBUG] Option6 fallback: Clicking last option %s (Text: '%s')"):format(last.Name, text))
+                            clickButton(btn)
+                            return true
+                        end
+                    end
                 end
             end
+
+            -- Skip dialogue / press in the middle
+            advanceDialogue(dlg)
         end
         task.wait(0.15)
     end
 
-    -- Diagnostic dump on failure
+    warn(("[Inventory][DEBUG] ❌ Timed out waiting for %s"):format(targetOptionName))
     local dlg = Player.PlayerGui and Player.PlayerGui:FindFirstChild("DialogueGui")
-    if not dlg then
-        local guis = {}
-        if Player.PlayerGui then
-            for _, g in ipairs(Player.PlayerGui:GetChildren()) do
-                table.insert(guis, g.Name)
-            end
-        end
-        warn(("[Inventory][DEBUG] ❌ findOptionByText timeout for '%s'. DialogueGui NOT found in PlayerGui. Available Guis: %s"):format(text, table.concat(guis, ", ")))
-    else
-        warn(("[Inventory][DEBUG] ❌ findOptionByText timeout for '%s'. Full DialogueGui dump below:"):format(text))
+    if dlg then
         dumpGuiHierarchy(dlg)
     end
-
-    return nil
-end
-
--- Waits for an option matching the text and clicks it.
--- Returns true on success, false on timeout.
-local function waitAndClick(text, timeout)
-    print(("[Inventory][DEBUG] waitAndClick called for '%s'"):format(text))
-    local btn = findOptionByText(text, timeout)
-    if btn then
-        local clicked = clickButton(btn)
-        print(("[Inventory][DEBUG] waitAndClick for '%s' clicked result: %s"):format(text, tostring(clicked)))
-        return clicked
-    end
-    print(("[Inventory][DEBUG] waitAndClick for '%s' FAILED: Button not found."):format(text))
     return false
 end
 
@@ -440,64 +463,23 @@ function Inventory:SellAll()
             print(("[Inventory][DEBUG] fireproximityprompt executed: ok=%s, err=%s"):format(tostring(ppOk), tostring(ppErr)))
             task.wait(0.8)
 
-            -- Step 1: "I'd like to sell this..."
-            print("[Inventory][DEBUG] Step 1: Searching for 'I'd like to sell this'...")
-            local step1 = waitAndClick("I'd like to sell this", 3)
-            if not step1 then
-                print("[Inventory][DEBUG] Step 1 fallback: Searching for 'sell'...")
-                step1 = waitAndClick("sell", 2)
-            end
+            -- Step 1: "I'd like to sell this..." -> Option1
+            print("[Inventory][DEBUG] Step 1: Selecting Option1 ('I'd like to sell this')...")
+            local step1 = waitAndClickOption("Option1", 4, "sell")
             print("[Inventory][DEBUG] Step 1 result: " .. tostring(step1))
-            task.wait(0.6)
+            task.wait(0.4)
 
-            -- Step 2: "Deal."
+            -- Step 2: "Deal." -> Option1
             if step1 then
-                print("[Inventory][DEBUG] Step 2: Searching for 'Deal.'...")
-                local step2 = waitAndClick("Deal.", 3)
-                if not step2 then
-                    print("[Inventory][DEBUG] Step 2 fallback: Searching for 'Deal'...")
-                    step2 = waitAndClick("Deal", 2)
-                end
+                print("[Inventory][DEBUG] Step 2: Selecting Option1 ('Deal.')...")
+                local step2 = waitAndClickOption("Option1", 4, "deal")
                 print("[Inventory][DEBUG] Step 2 result: " .. tostring(step2))
-                task.wait(0.6)
+                task.wait(0.4)
 
-                -- Step 3: "I'll sell ALL of these."
+                -- Step 3: "I'll sell ALL of these." -> Option6
                 if step2 then
-                    print("[Inventory][DEBUG] Step 3: Searching for 'sell ALL'...")
-                    local step3 = waitAndClick("sell ALL", 3)
-                    if not step3 then
-                        print("[Inventory][DEBUG] Step 3 fallback 1: Searching for 'ALL'...")
-                        step3 = waitAndClick("ALL", 2)
-                    end
-
-                    -- Fallback: click the last option in the menu
-                    if not step3 then
-                        print("[Inventory][DEBUG] Step 3 fallback 2: Clicking last option in DialogueGui.Options...")
-                        local dlg = Player.PlayerGui:FindFirstChild("DialogueGui")
-                        if dlg then
-                            local opts = dlg:FindFirstChild("Options", true)
-                            if opts then
-                                local children = opts:GetChildren()
-                                local last = children[#children]
-                                if last then
-                                    local btn = last:IsA("GuiButton") and last or last:FindFirstChildWhichIsA("GuiButton", true)
-                                    if btn then
-                                        print("[Inventory][DEBUG] Clicking last option button: " .. tostring(btn.Text))
-                                        clickButton(btn)
-                                        step3 = true
-                                    else
-                                        print("[Inventory][DEBUG] Last option has no GuiButton.")
-                                    end
-                                else
-                                    print("[Inventory][DEBUG] Options has 0 children.")
-                                end
-                            else
-                                print("[Inventory][DEBUG] DialogueGui has no Options container.")
-                            end
-                        else
-                            print("[Inventory][DEBUG] DialogueGui not found for last option fallback.")
-                        end
-                    end
+                    print("[Inventory][DEBUG] Step 3: Selecting Option6 ('Sell ALL')...")
+                    local step3 = waitAndClickOption("Option6", 4, "all")
                     print("[Inventory][DEBUG] Step 3 result: " .. tostring(step3))
 
                     task.wait(1.2)
@@ -520,11 +502,11 @@ function Inventory:SellAll()
                     end
                 else
                     failedCount = failedCount + 1
-                    warn("[Inventory] ❌ 'Deal.' not found for: " .. itemName)
+                    warn("[Inventory] ❌ Step 2 (Option1 - Deal) failed for: " .. itemName)
                 end
             else
                 failedCount = failedCount + 1
-                warn("[Inventory] ❌ 'I'd like to sell this...' not found for: " .. itemName)
+                warn("[Inventory] ❌ Step 1 (Option1 - Sell) failed for: " .. itemName)
             end
 
             task.wait(0.3)
