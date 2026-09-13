@@ -18,7 +18,7 @@ local Defaults = {
     FarmEnabled     = true,
     AutoPrestige    = false,
     PrestigeMaxNotified = false,
-    StayInPrivateServer = false,
+    StayInPrivateServer = true,
     
     -- Combat Farm (unified)
     NPCFarmEnabled   = false,

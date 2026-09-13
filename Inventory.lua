@@ -163,21 +163,31 @@ end
 -- Attempts to click a GuiButton using multiple methods
 -- Returns true if at least one method was attempted successfully
 local function clickButton(btn)
-    if not btn then return false end
+    if not btn then
+        print("[Inventory][DEBUG] clickButton called with nil button")
+        return false
+    end
+
+    print(("[Inventory][DEBUG] clickButton: %s (Text: '%s', Pos: %s)"):format(btn.Name, tostring(btn.Text), tostring(btn.AbsolutePosition)))
+
+    local firedMethod = false
 
     -- Method 1: firesignal (fastest, works if executor supports it)
-    local ok1 = pcall(function()
-        if firesignal then
+    if typeof(firesignal) == "function" then
+        local ok, err = pcall(function()
             firesignal(btn.MouseButton1Click)
-        end
-    end)
-    if ok1 then
-        return true
+            if btn.Activated then
+                firesignal(btn.Activated)
+            end
+        end)
+        print(("[Inventory][DEBUG] -> firesignal attempted: ok=%s err=%s"):format(tostring(ok), tostring(err)))
+        if ok then firedMethod = true end
+    else
+        print("[Inventory][DEBUG] -> firesignal not available in executor.")
     end
 
     -- Method 2: VirtualInputManager (physical click via screen coords)
-    -- This always works as long as the button is visible on screen
-    local ok2 = pcall(function()
+    local ok2, err2 = pcall(function()
         local absPos  = btn.AbsolutePosition
         local absSize = btn.AbsoluteSize
         local x = absPos.X + absSize.X / 2
@@ -187,8 +197,10 @@ local function clickButton(btn)
         task.wait(0.05)
         VirtualInputManager:SendMouseButtonEvent(x, y, 0, false, game, 1)
     end)
+    print(("[Inventory][DEBUG] -> VirtualInputManager attempted: ok=%s err=%s"):format(tostring(ok2), tostring(err2)))
+    if ok2 then firedMethod = true end
 
-    return ok2
+    return firedMethod
 end
 
 -- Searches DialogueGui.Options for an option whose TextButton contains
@@ -196,9 +208,10 @@ end
 local function findOptionByText(text, timeout)
     timeout = timeout or 5
     local start = tick()
+    print(("[Inventory][DEBUG] findOptionByText: Searching for '%s' (timeout: %ds)..."):format(text, timeout))
 
     while tick() - start < timeout do
-        local dlg = Player.PlayerGui:FindFirstChild("DialogueGui")
+        local dlg = Player.PlayerGui and Player.PlayerGui:FindFirstChild("DialogueGui")
         if dlg then
             local opts = dlg:FindFirstChild("Options")
             if opts then
@@ -207,6 +220,7 @@ local function findOptionByText(text, timeout)
                     if btn then
                         local btnText = btn.Text or ""
                         if btnText:find(text, 1, true) then
+                            print(("[Inventory][DEBUG] findOptionByText: MATCH FOUND for '%s' -> Button text: '%s'"):format(text, btnText))
                             return btn
                         end
                     end
@@ -216,17 +230,48 @@ local function findOptionByText(text, timeout)
         task.wait(0.15)
     end
 
+    -- Diagnostic dump on failure
+    local dlg = Player.PlayerGui and Player.PlayerGui:FindFirstChild("DialogueGui")
+    if not dlg then
+        local guis = {}
+        if Player.PlayerGui then
+            for _, g in ipairs(Player.PlayerGui:GetChildren()) do
+                table.insert(guis, g.Name)
+            end
+        end
+        warn(("[Inventory][DEBUG] ❌ findOptionByText timeout for '%s'. DialogueGui NOT found in PlayerGui. Available Guis: %s"):format(text, table.concat(guis, ", ")))
+    else
+        local opts = dlg:FindFirstChild("Options")
+        if not opts then
+            warn(("[Inventory][DEBUG] ❌ findOptionByText timeout for '%s'. DialogueGui exists (Enabled=%s) but 'Options' folder/frame is missing."):format(text, tostring(dlg.Enabled)))
+        else
+            local foundTexts = {}
+            for _, opt in ipairs(opts:GetChildren()) do
+                local btn = opt:FindFirstChild("TextButton", true)
+                if btn then
+                    table.insert(foundTexts, ("'%s'"):format(btn.Text or ""))
+                else
+                    table.insert(foundTexts, ("[%s - no TextButton]"):format(opt.Name))
+                end
+            end
+            warn(("[Inventory][DEBUG] ❌ findOptionByText timeout for '%s'. Available option buttons: [%s]"):format(text, table.concat(foundTexts, ", ")))
+        end
+    end
+
     return nil
 end
 
 -- Waits for an option matching the text and clicks it.
 -- Returns true on success, false on timeout.
 local function waitAndClick(text, timeout)
+    print(("[Inventory][DEBUG] waitAndClick called for '%s'"):format(text))
     local btn = findOptionByText(text, timeout)
     if btn then
-        clickButton(btn)
-        return true
+        local clicked = clickButton(btn)
+        print(("[Inventory][DEBUG] waitAndClick for '%s' clicked result: %s"):format(text, tostring(clicked)))
+        return clicked
     end
+    print(("[Inventory][DEBUG] waitAndClick for '%s' FAILED: Button not found."):format(text))
     return false
 end
 
@@ -239,13 +284,27 @@ end
 --   3. "I'll sell ALL of these."
 -- =====================
 function Inventory:SellAll()
+    print("[Inventory][DEBUG] ========== SellAll() START ==========")
+
     -- Guard clauses
-    if not _config:Get("FarmEnabled") then return end
-    if self:IsMoneyMaxed() then
+    local farmEnabled = _config and _config:Get("FarmEnabled")
+    print("[Inventory][DEBUG] Guard check - FarmEnabled: " .. tostring(farmEnabled))
+    if not farmEnabled then
+        print("[Inventory][DEBUG] Aborting: FarmEnabled is false.")
+        return
+    end
+
+    local currentMoney = self:GetMoney()
+    local isMaxed = self:IsMoneyMaxed()
+    print(("[Inventory][DEBUG] Guard check - Money: %d / %d (IsMoneyMaxed: %s)"):format(currentMoney, MONEY_STOP, tostring(isMaxed)))
+    if isMaxed then
         print("[Inventory] Money already maxed — skipping sell.")
         return
     end
-    if not _config:Get("AutoSell") then
+
+    local autoSell = _config and _config:Get("AutoSell")
+    print("[Inventory][DEBUG] Guard check - AutoSell: " .. tostring(autoSell))
+    if not autoSell then
         print("[Inventory] AutoSell disabled — skipping sell.")
         return
     end
@@ -254,15 +313,16 @@ function Inventory:SellAll()
     local sellItems = _config:GetSellItems()
     local toSell = {}
 
+    print("[Inventory][DEBUG] Evaluating configured SellItems:")
     for name, sell in pairs(sellItems) do
-        if sell then
-            local count = self:Count(name)
-            if count > 0 then
-                table.insert(toSell, name)
-            end
+        local count = self:Count(name)
+        print(("[Inventory][DEBUG]   • %s: SellConfig=%s, Owned=%d"):format(tostring(name), tostring(sell), count))
+        if sell and count > 0 then
+            table.insert(toSell, name)
         end
     end
 
+    print(("[Inventory][DEBUG] Items to sell count: %d -> [%s]"):format(#toSell, table.concat(toSell, ", ")))
     if #toSell == 0 then
         print("[Inventory] No items to sell.")
         return
@@ -271,22 +331,40 @@ function Inventory:SellAll()
     print("[Inventory] Selling " .. #toSell .. " item type(s)...")
 
     -- Locate the Merchant ProximityPrompt
+    print("[Inventory][DEBUG] Searching for Merchant ProximityPrompt...")
     local merchantPrompt
     local dlgFolder = workspace:FindFirstChild("Dialogues")
     if dlgFolder then
-        local merchant = workspace.Dialogues["ShiftPlox, The Travelling Merchant"]
+        print("[Inventory][DEBUG] Found workspace.Dialogues folder.")
+        local merchant = dlgFolder:FindFirstChild("ShiftPlox, The Travelling Merchant")
         if merchant then
+            print("[Inventory][DEBUG] Found merchant model in Dialogues: " .. merchant:GetFullName())
             merchantPrompt = merchant:FindFirstChildWhichIsA("ProximityPrompt", true)
+            if merchantPrompt then
+                print("[Inventory][DEBUG] Found ProximityPrompt via Dialogues folder: " .. merchantPrompt:GetFullName())
+            else
+                print("[Inventory][DEBUG] No ProximityPrompt inside merchant model in Dialogues.")
+            end
+        else
+            print("[Inventory][DEBUG] 'ShiftPlox, The Travelling Merchant' not found directly in workspace.Dialogues.")
+            local childrenNames = {}
+            for _, c in ipairs(dlgFolder:GetChildren()) do table.insert(childrenNames, c.Name) end
+            print("[Inventory][DEBUG] workspace.Dialogues children: " .. table.concat(childrenNames, ", "))
         end
+    else
+        print("[Inventory][DEBUG] workspace.Dialogues folder NOT found.")
     end
 
     -- Fallback: search workspace
     if not merchantPrompt then
+        print("[Inventory][DEBUG] Running fallback scan across workspace for merchant model...")
         for _, obj in ipairs(workspace:GetDescendants()) do
-            if obj:IsA("Model") and obj.Name:find("ShiftPlox, The Travelling Merchant") then
+            if obj:IsA("Model") and (obj.Name:find("ShiftPlox") or obj.Name:find("Merchant")) then
+                print("[Inventory][DEBUG] Found candidate merchant model in workspace: " .. obj:GetFullName())
                 local pp = obj:FindFirstChildWhichIsA("ProximityPrompt", true)
                 if pp then
                     merchantPrompt = pp
+                    print("[Inventory][DEBUG] Found ProximityPrompt in fallback model: " .. pp:GetFullName())
                     break
                 end
             end
@@ -294,58 +372,93 @@ function Inventory:SellAll()
     end
 
     if not merchantPrompt then
-        warn("[Inventory] Merchant ProximityPrompt not found — cannot sell.")
+        warn("[Inventory] ❌ Merchant ProximityPrompt not found — cannot sell.")
         return
+    end
+
+    -- Diagnostic: Check player distance to Merchant Prompt
+    local promptPart = merchantPrompt.Parent and merchantPrompt.Parent:IsA("BasePart") and merchantPrompt.Parent
+    local charRoot = Player.Character and Player.Character:FindFirstChild("HumanoidRootPart")
+    if promptPart and charRoot then
+        local dist = (promptPart.Position - charRoot.Position).Magnitude
+        print(("[Inventory][DEBUG] Distance to Merchant: %.1f studs (MaxActivationDistance: %.1f)"):format(dist, merchantPrompt.MaxActivationDistance))
+        if dist > merchantPrompt.MaxActivationDistance then
+            warn(("[Inventory][DEBUG] ⚠️ Player is far from merchant (%.1f > %.1f)! Prompt might not fire if distance check is enforced."):format(dist, merchantPrompt.MaxActivationDistance))
+        end
     end
 
     local soldCount   = 0
     local failedCount = 0
 
     -- Sell each item type
-    for _, itemName in ipairs(toSell) do
+    for i, itemName in ipairs(toSell) do
+        print(("[Inventory][DEBUG] [%d/%d] Processing item: %s"):format(i, #toSell, itemName))
+        local countBefore = self:Count(itemName)
+
         -- Re-fetch the tool (might be in backpack or equipped)
         local tool = Player.Backpack:FindFirstChild(itemName)
         if not tool and Player.Character then
             tool = Player.Character:FindFirstChild(itemName)
         end
 
-        if tool then
+        if not tool then
+            warn("[Inventory][DEBUG] ❌ Could not find tool instance for: " .. itemName)
+            failedCount = failedCount + 1
+        else
+            print(("[Inventory][DEBUG] Found tool %s in %s"):format(itemName, tool.Parent.Name))
+
             -- Equip the item so the server knows which one to sell
             local char = Player.Character
             local hum  = char and char:FindFirstChildWhichIsA("Humanoid")
             if hum and tool.Parent == Player.Backpack then
+                print("[Inventory][DEBUG] Equipping " .. itemName .. "...")
                 hum:EquipTool(tool)
-                task.wait(0.15)
+                task.wait(0.3)
+                print("[Inventory][DEBUG] Tool equipped. Current parent: " .. tostring(tool.Parent and tool.Parent.Name))
             end
 
             -- Open the dialogue via ProximityPrompt
-            pcall(function() fireproximityprompt(merchantPrompt) end)
+            print("[Inventory][DEBUG] Firing merchant ProximityPrompt...")
+            if typeof(fireproximityprompt) ~= "function" then
+                warn("[Inventory][DEBUG] ⚠️ fireproximityprompt is NOT a global function in this executor!")
+            end
+            local ppOk, ppErr = pcall(function() fireproximityprompt(merchantPrompt) end)
+            print(("[Inventory][DEBUG] fireproximityprompt executed: ok=%s, err=%s"):format(tostring(ppOk), tostring(ppErr)))
             task.wait(0.8)
 
             -- Step 1: "I'd like to sell this..."
+            print("[Inventory][DEBUG] Step 1: Searching for 'I'd like to sell this'...")
             local step1 = waitAndClick("I'd like to sell this", 3)
             if not step1 then
+                print("[Inventory][DEBUG] Step 1 fallback: Searching for 'sell'...")
                 step1 = waitAndClick("sell", 2)
             end
+            print("[Inventory][DEBUG] Step 1 result: " .. tostring(step1))
             task.wait(0.6)
 
             -- Step 2: "Deal."
             if step1 then
+                print("[Inventory][DEBUG] Step 2: Searching for 'Deal.'...")
                 local step2 = waitAndClick("Deal.", 3)
                 if not step2 then
+                    print("[Inventory][DEBUG] Step 2 fallback: Searching for 'Deal'...")
                     step2 = waitAndClick("Deal", 2)
                 end
+                print("[Inventory][DEBUG] Step 2 result: " .. tostring(step2))
                 task.wait(0.6)
 
                 -- Step 3: "I'll sell ALL of these."
                 if step2 then
+                    print("[Inventory][DEBUG] Step 3: Searching for 'sell ALL'...")
                     local step3 = waitAndClick("sell ALL", 3)
                     if not step3 then
+                        print("[Inventory][DEBUG] Step 3 fallback 1: Searching for 'ALL'...")
                         step3 = waitAndClick("ALL", 2)
                     end
 
                     -- Fallback: click the last option in the menu
                     if not step3 then
+                        print("[Inventory][DEBUG] Step 3 fallback 2: Clicking last option in DialogueGui.Options...")
                         local dlg = Player.PlayerGui:FindFirstChild("DialogueGui")
                         if dlg then
                             local opts = dlg:FindFirstChild("Options")
@@ -355,28 +468,41 @@ function Inventory:SellAll()
                                 if last then
                                     local btn = last:FindFirstChild("TextButton", true)
                                     if btn then
+                                        print("[Inventory][DEBUG] Clicking last option button: " .. tostring(btn.Text))
                                         clickButton(btn)
                                         step3 = true
+                                    else
+                                        print("[Inventory][DEBUG] Last option has no TextButton.")
                                     end
+                                else
+                                    print("[Inventory][DEBUG] Options has 0 children.")
                                 end
+                            else
+                                print("[Inventory][DEBUG] DialogueGui has no Options container.")
                             end
+                        else
+                            print("[Inventory][DEBUG] DialogueGui not found for last option fallback.")
                         end
                     end
+                    print("[Inventory][DEBUG] Step 3 result: " .. tostring(step3))
 
                     task.wait(1.2)
 
                     -- Verify the item was actually sold
+                    local countAfter = self:Count(itemName)
+                    print(("[Inventory][DEBUG] Verification for %s: before=%d, after=%d"):format(itemName, countBefore, countAfter))
+
                     local stillHas = Player.Backpack:FindFirstChild(itemName)
                     if not stillHas and Player.Character then
                         stillHas = Player.Character:FindFirstChild(itemName)
                     end
 
-                    if not stillHas then
+                    if not stillHas or countAfter < countBefore then
                         soldCount = soldCount + 1
                         print("[Inventory] ✅ Sold: " .. itemName)
                     else
                         failedCount = failedCount + 1
-                        warn("[Inventory] ❌ Failed to sell: " .. itemName)
+                        warn("[Inventory] ❌ Failed to sell: " .. itemName .. " (Item still in inventory)")
                     end
                 else
                     failedCount = failedCount + 1
@@ -391,7 +517,8 @@ function Inventory:SellAll()
         end
     end
 
-    print("[Inventory] SellAll done — Sold: " .. soldCount .. " | Failed: " .. failedCount)
+    print(("[Inventory] SellAll done — Sold: " .. soldCount .. " | Failed: " .. failedCount))
+    print("[Inventory][DEBUG] ========== SellAll() END ==========")
 end
 
 -- =====================
