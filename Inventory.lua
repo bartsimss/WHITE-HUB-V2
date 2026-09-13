@@ -272,9 +272,9 @@ function Inventory:SellAll()
 
     -- Locate the Merchant ProximityPrompt
     local merchantPrompt
-    local dlgFolder = ReplicatedStorage:FindFirstChild("Dialogue")
+    local dlgFolder = workspace:FindFirstChild("Dialogues")
     if dlgFolder then
-        local merchant = dlgFolder:FindFirstChild("Merchant")
+        local merchant = workspace.Dialogues["ShiftPlox, The Travelling Merchant"]
         if merchant then
             merchantPrompt = merchant:FindFirstChildWhichIsA("ProximityPrompt", true)
         end
@@ -283,7 +283,7 @@ function Inventory:SellAll()
     -- Fallback: search workspace
     if not merchantPrompt then
         for _, obj in ipairs(workspace:GetDescendants()) do
-            if obj:IsA("Model") and obj.Name:find("Merchant") then
+            if obj:IsA("Model") and obj.Name:find("ShiftPlox, The Travelling Merchant") then
                 local pp = obj:FindFirstChildWhichIsA("ProximityPrompt", true)
                 if pp then
                     merchantPrompt = pp
