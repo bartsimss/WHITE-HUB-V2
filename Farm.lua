@@ -197,6 +197,8 @@ local function shouldSkipHop()
     local stay = _config:Get("StayInPrivateServer")
     if stay then
         print("[Farm] StayInPrivateServer is ON – skipping all hops.")
+        _inventory:SellAll()
+        _inventory:BuyLucky()
         return true
     end
     return false
