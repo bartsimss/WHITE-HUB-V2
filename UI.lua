@@ -62,7 +62,7 @@ local function CreateCreditsPopup()
     t2.Size               = UDim2.new(1,-10,0.42,0)
     t2.Position           = UDim2.new(0,8,0.55,0)
     t2.BackgroundTransparency = 1
-    t2.Text               = "by WHITE DRAGON"
+    t2.Text               = "forked by joepgo"
     t2.TextColor3         = Color3.fromRGB(140,140,155)
     t2.TextScaled         = true
     t2.Font               = Enum.Font.Gotham
@@ -468,7 +468,7 @@ function UI:Create()
     Title.BorderSizePixel        = 0
     Title.Position               = UDim2.new(0,12,0,0)
     Title.Size                   = UDim2.new(1,-50,1,0)
-    Title.Text                   = "⚡ WHITE HUB"
+    Title.Text                   = "WHITE HUB"
     Title.TextColor3             = Color3.fromRGB(255,255,255)
     Title.TextSize               = 22
     Title.Font                   = Enum.Font.GothamBold
@@ -814,7 +814,7 @@ function UI:Create()
     creditLabel.Size             = UDim2.new(1,-4,0,44)
     creditLabel.BackgroundColor3 = Color3.fromRGB(22,22,30)
     creditLabel.BorderSizePixel  = 0
-    creditLabel.Text             = "Made by WHITE DRAGON"
+    creditLabel.Text             = "Fork by joepgo, main by WHITE DRAGON"
     creditLabel.TextColor3       = Color3.fromRGB(235,235,240)
     creditLabel.TextScaled       = true
     creditLabel.Font             = Enum.Font.GothamBold
@@ -822,33 +822,6 @@ function UI:Create()
     Instance.new("UICorner", creditLabel).CornerRadius = UDim.new(0,7)
     local creditStroke = Instance.new("UIStroke", creditLabel)
     creditStroke.Color = Color3.fromRGB(60,55,85)
-    local discordBtn = Instance.new("TextButton")
-    discordBtn.Size             = UDim2.new(1,-4,0,36)
-    discordBtn.BackgroundColor3 = Color3.fromRGB(88,101,242)
-    discordBtn.BorderSizePixel  = 0
-    discordBtn.Text             = "🔗 discord.gg/Qwd23ZRNxJ  —  Click to Copy"
-    discordBtn.TextColor3       = Color3.fromRGB(255,255,255)
-    discordBtn.TextScaled       = true
-    discordBtn.Font             = Enum.Font.GothamBold
-    discordBtn.Parent           = CreditsPage
-    Instance.new("UICorner", discordBtn).CornerRadius = UDim.new(0,7)
-    Instance.new("UIStroke", discordBtn).Color = Color3.fromRGB(60,70,200)
-    discordBtn.MouseEnter:Connect(function()
-        TweenService:Create(discordBtn, TweenInfo.new(0.15), {BackgroundColor3=Color3.fromRGB(110,125,255)}):Play()
-    end)
-    discordBtn.MouseLeave:Connect(function()
-        TweenService:Create(discordBtn, TweenInfo.new(0.15), {BackgroundColor3=Color3.fromRGB(88,101,242)}):Play()
-    end)
-    discordBtn.MouseButton1Click:Connect(function()
-        pcall(function() setclipboard("https://discord.gg/Qwd23ZRNxJ") end)
-        local orig = discordBtn.Text
-        discordBtn.Text = "✅ Copied!"
-        TweenService:Create(discordBtn, TweenInfo.new(0.15), {BackgroundColor3=Color3.fromRGB(50,180,80)}):Play()
-        task.delay(2, function()
-            discordBtn.Text = orig
-            TweenService:Create(discordBtn, TweenInfo.new(0.15), {BackgroundColor3=Color3.fromRGB(88,101,242)}):Play()
-        end)
-    end)
     AutoCanvas(CreditsPage)
 
     -- =====================
@@ -859,7 +832,7 @@ function UI:Create()
     ToggleBtn.BorderSizePixel  = 0
     ToggleBtn.Position         = UDim2.new(0,8,1,-280)
     ToggleBtn.Size             = UDim2.new(0,110,0,32)
-    ToggleBtn.Text             = "⚡ WHITE HUB"
+    ToggleBtn.Text             = "WHITE HUB"
     ToggleBtn.TextColor3       = Color3.fromRGB(235,235,240)
     ToggleBtn.TextSize         = 14
     ToggleBtn.Font             = Enum.Font.GothamBold
